@@ -1,0 +1,446 @@
+====================================================================================================
+SELECT current_database();
+
+SELECT current_user;
+
+SELECT inet_server_addr(), inet_server_port();
+
+SELECT version();
+
+\conninfo
+
+env PGOPTIONS="-c statement_timeout=5min" psql
+====================================================================================================
+Get 
+
+SELECT 
+trunc (total_time:: numeric, 2) AS time,
+trunc(total_time:: numeric/calls, 2) AS avg,
+query
+From pg_stat_statements
+ORDER BY total_time DESC
+LIMIT 5;
+
+SELECT
+query,
+calls,
+trunc(total_time::numeric, 2) AS total_time,
+rows,
+trunc(100.0 * shared_blks_hit / nullif(shared_blks_hit + shared_blks_read, 0)::numeric, 2) AS hit,
+trunc((blk_read_time + blk_write_time)::numeric, 2) AS io_time
+FROM pg_stat_statements
+ORDER BY total_time DESC
+LIMIT 5;
+====================================================================================================
+Server Uptime :
+
+SELECT date_trunc('second',
+current_timestamp - pg_postmaster_start_time()) as uptime;
+
+SELECT pg_postmaster_start_time();
+====================================================================================================
+select datname from pg_database;
+
+SELECT pg_database_size(current_database());
+
+SELECT sum(pg_database_size(datname)) from pg_database;
+
+Table size on disk :
+select pg_relation_size('pgbench_accounts');
+
+Size including Index & other related spaces/objects :
+select pg_total_relation_size('pgbench_accounts');
+
+SELECT pg_size_pretty(pg_relation_size('pgbench_accounts'));
+
+Biggest 10 tables in the database :
+SELECT table_name
+,pg_relation_size(table_schema || '.' || table_name) as size
+FROM information_schema.tables
+WHERE table_schema NOT IN ('information_schema', 'pg_catalog')
+ORDER BY size DESC
+LIMIT 10;
+
+Count of table rows :
+SELECT (CASE WHEN reltuples > 0 THEN
+pg_relation_size('mytable')*reltuples/(8192*relpages)
+ELSE 0
+END)::bigint AS estimated_row_count
+FROM pg_class
+WHERE oid = 'mytable'::regclass;
+====================================================================================================
+No of tables in database :
+
+SELECT count(*) FROM information_schema.tables
+WHERE table_schema NOT IN ('information_schema',
+'pg_catalog');
+====================================================================================================
+SELECT name, setting, reset_val, source FROM pg_settings WHERE source = 'session';
+====================================================================================================
+See outstanding vaccum tables :
+	SELECT
+		count(nullif((pt.n_tup_del + pt.n_tup_upd) > pgs_threshold.setting::int + (pgs_scale.setting::float * pc.reltuples), false)) as pending_vacume,
+		count(1)
+	FROM
+		pg_class pc
+	JOIN
+		pg_stat_all_tables pt ON pc.relname = pt.relname
+	CROSS JOIN
+		pg_settings pgs_threshold
+	CROSS JOIN
+		pg_settings pgs_scale
+	WHERE
+		pgs_threshold.name = 'autovacuum_vacuum_threshold'
+		AND pgs_scale.name = 'autovacuum_vacuum_scale_factor';
+====================================================================================================
+-- All things locking a specific table
+
+select
+    pgc.relname as "TABLE",
+    pgs.application_name as "APP NAME",
+    pgs.client_addr as "CLIENT ADDR",
+    pgs.backend_start as "BACKEND START",
+    pgs.query_start as "Q START",
+    pgl.locktype as "LOCKTYPE",
+    pgl.pid as "PID",
+    pgl.transactionid as "TRANSACTIONID",
+    pgl.classid as "CLASSID",
+    pgl.objid as "OBJID",
+    pgl.objsubid as "OBJSUBID",
+    pgl.virtualtransaction as "VIRTUALTRANSACTION",
+    pgl.mode as "MODE",
+    -- pgl.granted as "GRANTED",
+    pgs.state as "STATE",
+    substring(pgs.query from 0 for 100) as "QUERY"
+from
+    pg_locks pgl,
+    pg_class pgc,
+    pg_stat_activity pgs
+where
+    pgc.oid = pgl.relation
+    and pgl.pid = pgs.pid
+    and pgc.relname = 'users'
+order by
+    pgs.backend_start desc;
+
+====================================================================================================
+-- All blocked processes.
+	SELECT
+		blocked_locks.pid AS blocked_pid,
+		blocking_locks.pid AS blocking_pid,
+		blocked_activity.application_name AS blocked_application,
+		blocking_activity.application_name AS blocking_application,
+		substring(blocked_activity.query, 1, 40) AS blocked_query,
+		blocked_activity.state,
+		substring(blocking_activity.query, 1, 40) AS current_query_in_blocking_process,
+		blocking_activity.state,
+		blocking_activity.state_change
+	FROM pg_catalog.pg_locks blocked_locks
+	JOIN pg_catalog.pg_stat_activity blocked_activity ON blocked_activity.pid = blocked_locks.pid
+	JOIN pg_catalog.pg_locks blocking_locks ON
+		blocking_locks.locktype = blocked_locks.locktype AND
+		blocking_locks.DATABASE IS NOT DISTINCT FROM blocked_locks.DATABASE AND
+		blocking_locks.relation IS NOT DISTINCT FROM blocked_locks.relation AND
+		blocking_locks.page IS NOT DISTINCT FROM blocked_locks.page AND
+		blocking_locks.tuple IS NOT DISTINCT FROM blocked_locks.tuple AND
+		blocking_locks.virtualxid IS NOT DISTINCT FROM blocked_locks.virtualxid AND
+		blocking_locks.transactionid IS NOT DISTINCT FROM blocked_locks.transactionid AND
+		blocking_locks.classid IS NOT DISTINCT FROM blocked_locks.classid AND
+		blocking_locks.objid IS NOT DISTINCT FROM blocked_locks.objid AND
+		blocking_locks.objsubid IS NOT DISTINCT FROM blocked_locks.objsubid AND
+		blocking_locks.pid != blocked_locks.pid
+	JOIN pg_catalog.pg_stat_activity blocking_activity ON blocking_activity.pid = blocking_locks.pid
+	WHERE NOT blocked_locks.GRANTED;
+====================================================================================================
+-- See all processes blocking process with a specified application_name
+WITH blocked_query AS (
+    SELECT * FROM pg_stat_activity WHERE waiting AND application_name ilike '%alembic%'
+)
+SELECT
+    blocked.pid AS "Blocked PID",
+    blocked.application_name AS "Blocked App",
+    dep_query.application_name,
+    dep_query.pid,
+    dep_query.state_change,
+    dep_query.query
+FROM
+    blocked_query blocked,
+    pg_locks blocked_lock,
+    pg_locks dep_lock,
+    pg_stat_activity dep_query
+WHERE
+    blocked_lock.pid = blocked.pid
+    AND NOT blocked_lock.granted
+    AND (
+        -- curiously, all four constraints make the query slow..
+        dep_lock.relation = blocked_lock.relation
+        --OR dep_lock.tuple = blocked_lock.tuple
+        OR dep_lock.virtualxid = blocked_lock.virtualxid
+        OR dep_lock.transactionid = blocked_lock.transactionid
+    )
+    AND dep_lock.pid != blocked.pid
+    AND dep_lock.granted
+    AND dep_query.pid = dep_lock.pid;
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+locking schema wise :
+
+SELECT       locktype , virtualtransaction , transactionid , nspname , relname , mode ,
+        granted , cast ( date_trunc('second',query_start) as timestamp) as query_start ,
+        substr(query,1,525) AS query
+FROM
+        pg_locks
+        LEFT OUTER JOIN pg_class ON (pg_locks.relation = pg_class.oid)
+        LEFT OUTER JOIN pg_namespace ON (pg_namespace.oid = pg_class.relnamespace),
+        pg_stat_activity
+WHERE
+        NOT pg_locks.pid=pg_backend_pid()
+ AND    pg_locks.pid = pg_stat_activity.pid and nspname like 'ap_pay%'; 
+====================================================================================================
+-- Statistics about a indexes use.
+SELECT
+    t.tablename,
+    indexname,
+    c.reltuples AS num_rows,
+    pg_size_pretty(pg_relation_size(quote_ident(t.tablename)::text)) AS table_size,
+    pg_size_pretty(pg_relation_size(quote_ident(indexrelname)::text)) AS index_size,
+    CASE WHEN indisunique THEN 'Y'
+       ELSE 'N'
+    END AS UNIQUE,
+    idx_scan AS number_of_scans,
+    idx_tup_read AS tuples_read,
+    idx_tup_fetch AS tuples_fetched
+FROM pg_tables t
+LEFT OUTER JOIN pg_class c ON t.tablename=c.relname
+LEFT OUTER JOIN
+    ( SELECT c.relname AS ctablename, ipg.relname AS indexname, x.indnatts AS number_of_columns, idx_scan, idx_tup_read, idx_tup_fetch, indexrelname, indisunique FROM pg_index x
+           JOIN pg_class c ON c.oid = x.indrelid
+           JOIN pg_class ipg ON ipg.oid = x.indexrelid
+           JOIN pg_stat_all_indexes psai ON x.indexrelid = psai.indexrelid )
+    AS foo
+    ON t.tablename = foo.ctablename
+WHERE t.schemaname='mts_owner' and indexname ilike '%index name%'
+ORDER BY 1,2;
+====================================================================================================
+Get last vaccum date :
+select relname,last_vacuum, last_autovacuum, last_analyze, last_autoanalyze from pg_stat_user_tables;
+
+SELECT max(age(pg_database.datfrozenxid)) / 2147483648.0 * 100.0 AS 
+"Percentage of transaction ID's used" FROM pg_database; 
+====================================================================================================
+Average time interval between checkpoints :
+
+SELECT
+    total_checkpoints,
+    seconds_since_start / total_checkpoints  AS seconds_between_checkpoints,
+    seconds_since_start / total_checkpoints / 60 AS minutes_between_checkpoints,
+    seconds_since_start
+FROM (SELECT EXTRACT(EPOCH FROM (now() - pg_postmaster_start_time())) AS seconds_since_start,
+        (checkpoints_timed+checkpoints_req) AS total_checkpoints FROM  pg_stat_bgwriter
+    ) AS sub
+====================================================================================================
+Which indexes are really used
+
+select
+    i.schemaname as schema_name, 
+    i.relname as table_name, 
+    i.indexrelname as index_name, 
+    i.idx_blks_hit as number_of_hits
+from pg_statio_all_indexes i
+where schemaname not in ( 'pg_catalog', 'pg_toast')
+order by number_of_hits desc;
+====================================================================================================
+-- check missing indexes, tables which have more sequence scans then index scans (ignore small tables)
+SELECT relname, seq_scan-idx_scan AS too_much_seq,
+ case when seq_scan-idx_scan>0 THEN 'Missing Index?' ELSE 'OK' END,
+ pg_relation_size(relname::regclass) AS rel_size,
+ seq_scan, idx_scan
+FROM pg_stat_all_tables
+WHERE schemaname='public' AND pg_relation_size(relname::regclass)>80000
+ORDER BY too_much_seq DESC;
+
+-- check unused indexes
+SELECT
+  schemaname || '.' || relname AS table,
+  indexrelname AS index,
+  pg_size_pretty(pg_relation_size(i.indexrelid)) AS index_size,
+  idx_scan as index_scans
+FROM pg_stat_user_indexes ui
+JOIN pg_index i ON ui.indexrelid = i.indexrelid
+WHERE NOT indisunique AND idx_scan < 50 AND pg_relation_size(relid) > 5 * 8192
+ORDER BY pg_relation_size(i.indexrelid) / nullif(idx_scan, 0) DESC NULLS FIRST,
+pg_relation_size(i.indexrelid) DESC;
+====================================================================================================
+Schema Sizes :
+SELECT schema_name, 
+    pg_size_pretty(sum(table_size)::bigint) as "disk space",
+    (sum(table_size) / pg_database_size(current_database())) * 100
+        as "percent"
+FROM (
+     SELECT pg_catalog.pg_namespace.nspname as schema_name,
+         pg_relation_size(pg_catalog.pg_class.oid) as table_size
+     FROM   pg_catalog.pg_class
+         JOIN pg_catalog.pg_namespace 
+             ON relnamespace = pg_catalog.pg_namespace.oid
+) t
+GROUP BY schema_name
+ORDER BY schema_name;
+====================================================================================================
+		Performance Related queries
+
+		
+SELECT now () - pg_postmaster_start_time () "Uptime",
+now () - stats_reset "Minutes since stats reset",
+round (100.0 * checkpoints_req / checkpoints, 1) "Forced
+checkpoint ratio (%) ",
+round (min_since_reset / checkpoints, 2) "Minutes between
+checkpoints ",
+round (checkpoint_write_time :: numeric / (checkpoints * 1000), 2) "Average
+write time per checkpoint (s) ",
+round (checkpoint_sync_time :: numeric / (checkpoints * 1000), 2) "Average
+sync time per checkpoint (s) ",
+round (total_buffers / pages_per_mb, 1) "Total MB written",
+round (buffers_checkpoint / (pages_per_mb * checkpoints), 2) "MB per
+checkpoint ",
+round (buffers_checkpoint / (pages_per_mb * min_since_reset * 60), 2)
+"Checkpoint MBps"
+FROM (
+SELECT checkpoints_req,
+checkpoints_timed + checkpoints_req checkpoints,
+checkpoint_write_time,
+checkpoint_sync_time,
+buffers_checkpoint,
+buffers_checkpoint + buffers_clean + buffers_backend total_buffers,
+stats_reset,
+round (extract ('epoch' from now () - stats_reset) / 60) :: numeric
+min_since_reset,
+(1024.0 * 1024 / (current_setting ('block_size') :: numeric)) pages_per_mb
+FROM pg_stat_bgwriter
+) bg;
+
+
+/* select 
+case 
+when setting :: bigint <90200 then 'You are using the old version of PostgreSQL, 
+which is no longer supported by the community.' || chr (10) || 'We recommend that you go 
+to the latest version as soon as possible.' 
+when setting :: bigint <90500 then 'You are using the old version of PostgreSQL, 
+which is still supported by the community.' || chr (10) || 'We recommend that you go 
+to the latest version.' 
+when setting :: bigint <90600 then 'You use a fairly modern 
+version of PostgreSQL, actively supported by the community.' || chr (10) || 'You are doing 
+well, but you can upgrade to the latest version if possible.' 
+when setting :: bigint <100000 then '
+versions of PostgreSQL. '|| chr (10) ||'
+else 'You use the version which is in the beta stage,' || chr (10) || 'if 
+this is production, then we recommend that you switch to a stable version of PostgreSQL.' 
+end as "Checking the major version of PostgreSQL", case 
+when setting :: bigint between 90603 and 90699 
+or setting :: bigint between 90507 and 90599 
+or setting :: bigint between 90412 and 90499 
+or setting :: bigint between 90317 and 90399 
+or setting :: bigint between 90221 and 90299 
+then 'You have one of the latest PostgreSQL patches for your version.' || chr 
+(10) || 'It looks like you are following PostgreSQL updates. It's a good fact. '
+else 'It looks like you did not update PostgreSQL after the installation / last 
+major update at all.' || chr (10) || 'This is bad, we recommend that you update to the 
+latest version of PostgreSQL.' 
+end as "Checking the minor version of PostgreSQL", "Actual versions for the moment are as follows, in order of decreasing 
+relevance: '|| chr (10) ||' 9.6.4, 9.5.8, 9.4.13, 9.3.18, 9.2. 22 ' 
+as "List of current versions" from pg_settings where name =' server_version_num ';
+*/
+====================================================================================================
+						Find tables without Primary Key
+SELECT
+    n.nspname AS "Schema",
+    c.relname AS "Table Name",
+    c.relhaspkey AS "Has PK"
+FROM
+    pg_catalog.pg_class c
+JOIN
+    pg_namespace n
+ON (
+        c.relnamespace = n.oid
+    AND n.nspname NOT IN ('information_schema', 'pg_catalog')
+    AND c.relkind='r'
+)
+ORDER BY c.relhaspkey, c.relname
+;
+====================================================================================================
+				when autovacuum will initiate a wraparound VACUUM
+
+			SELECT
+       oid::regclass::text AS table,
+       age(relfrozenxid) AS xid_age, 
+       mxid_age(relminmxid) AS mxid_age, 
+       least( 
+(SELECT setting::int
+            FROM    pg_settings
+            WHERE   name = 'autovacuum_freeze_max_age') - age(relfrozenxid), 
+(SELECT setting::int
+            FROM    pg_settings
+            WHERE   name = 'autovacuum_multixact_freeze_max_age') - mxid_age(relminmxid)  
+) AS tx_before_wraparound_vacuum,
+pg_size_pretty(pg_total_relation_size(oid)) AS size,
+pg_stat_get_last_autovacuum_time(oid) AS last_autovacuum
+FROM    pg_class
+WHERE   relfrozenxid != 0
+AND oid > 16384
+ORDER BY tx_before_wraparound_vacuum;
+====================================================================================================
+/* Percentage towards vacuum query from CrunchyData */
+WITH max_age AS ( 
+    SELECT 2000000000 as max_old_xid
+        , setting AS autovacuum_freeze_max_age 
+        FROM pg_catalog.pg_settings 
+        WHERE name = 'autovacuum_freeze_max_age' )
+, per_database_stats AS ( 
+    SELECT datname
+        , m.max_old_xid::int
+        , m.autovacuum_freeze_max_age::int
+        , age(d.datfrozenxid) AS oldest_current_xid 
+    FROM pg_catalog.pg_database d 
+    JOIN max_age m ON (true) 
+    WHERE d.datallowconn ) 
+SELECT max(oldest_current_xid) AS oldest_current_xid
+    , max(ROUND(100*(oldest_current_xid/max_old_xid::float))) AS percent_towards_wraparound
+    , max(ROUND(100*(oldest_current_xid/autovacuum_freeze_max_age::float))) AS percent_towards_emergency_autovac 
+FROM per_database_stats;
+
+====================================================================================================
+
+GRANT SELECT, UPDATE, INSERT, DELETE ON ALL TABLES IN SCHEMA citising_tenant_owner TO citising_tenant_app;
+GRANT SELECT, UPDATE, INSERT, DELETE ON ALL TABLES IN SCHEMA citising_tenant_owner TO citising_tenant_rw;
+GRANT SELECT ON ALL TABLES IN SCHEMA citising_tenant_owner TO citising_tenant_read;
+
+
+GRANT USAGE ON ALL SEQUENCES IN SCHEMA citising_tenant_owner to citising_tenant_app;
+GRANT USAGE ON ALL SEQUENCES IN SCHEMA citising_tenant_owner to citising_tenant_rw;
+grant select on ALL SEQUENCES IN SCHEMA citising_tenant_owner to citising_tenant_read;
+
+
+
+set search_path=tenant;
+CREATE ROLE tenant_app;
+CREATE ROLE tenant_rw;
+CREATE ROLE tenant_read;
+CREATE ROLE tenant_jboss LOGIN password 'xxxxxxxxxxx';
+
+
+
+GRANT SELECT, UPDATE, INSERT, DELETE ON ALL TABLES IN SCHEMA banamex_tenant_owner TO banamex_tenant_app;
+GRANT SELECT, UPDATE, INSERT, DELETE ON ALL TABLES IN SCHEMA banamex_tenant_owner TO banamex_tenant_rw;
+GRANT SELECT ON ALL TABLES IN SCHEMA banamex_tenant_owner TO banamex_tenant_read;
+
+
+GRANT USAGE ON ALL SEQUENCES IN SCHEMA banamex_tenant_owner to banamex_tenant_app;
+GRANT USAGE ON ALL SEQUENCES IN SCHEMA banamex_tenant_owner to banamex_tenant_rw;
+grant select on ALL SEQUENCES IN SCHEMA banamex_tenant_owner to banamex_tenant_read;
+
+
+ALTER ROLE tenant_app rename to banamex_tenant_app;
+ALTER ROLE tenant_rw rename to banamex_tenant_rw;
+ALTER ROLE tenant_read rename to banamex_tenant_read;
+
+
+ALTER ROLE tenant_jboss rename to banamex_tenant_jboss;
