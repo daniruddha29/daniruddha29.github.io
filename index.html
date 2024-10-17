@@ -1,3 +1,165 @@
-Aniruddha Deshpande 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PostgreSQL DBA Daily Queries</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 0;
+        }
+        header {
+            background-color: #333;
+            color: #fff;
+            text-align: center;
+            padding: 10px 0;
+        }
+        h1 {
+            margin: 0;
+            font-size: 24px;
+        }
+        .container {
+            width: 90%;
+            margin: 20px auto;
+            padding: 20px;
+            background-color: #fff;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+        h2 {
+            color: #333;
+            font-size: 20px;
+            margin-bottom: 10px;
+        }
+        code {
+            background-color: #f1f1f1;
+            padding: 5px;
+            display: block;
+            margin-bottom: 10px;
+            border-left: 4px solid #333;
+        }
+        pre {
+            background-color: #f1f1f1;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: scroll;
+        }
+    </style>
+</head>
+<body>
 
-1. Daily needed queries
+<header>
+    <h1>PostgreSQL DBA Daily Queries</h1>
+</header>
+
+<div class="container">
+
+    <h2>1. Database Size</h2>
+    <code>
+        SELECT pg_size_pretty(pg_database_size('your_database_name')) AS size;
+    </code>
+    <p>Get the size of a specific database.</p>
+
+    <h2>2. List of Running Queries</h2>
+    <code>
+        SELECT pid, query, state, wait_event_type, wait_event 
+        FROM pg_stat_activity 
+        WHERE state = 'active';
+    </code>
+    <p>Shows the currently active queries in the database.</p>
+
+    <h2>3. Long-running Queries</h2>
+    <code>
+        SELECT pid, now() - pg_stat_activity.query_start AS duration, query 
+        FROM pg_stat_activity 
+        WHERE state = 'active' 
+        AND now() - pg_stat_activity.query_start > interval '5 minutes';
+    </code>
+    <p>Identify queries running longer than 5 minutes.</p>
+
+    <h2>4. Check Locks</h2>
+    <code>
+        SELECT * FROM pg_locks WHERE NOT granted;
+    </code>
+    <p>List locks that are not granted.</p>
+
+    <h2>5. Table Size</h2>
+    <code>
+        SELECT relname AS table_name, 
+               pg_size_pretty(pg_total_relation_size(relid)) AS size 
+        FROM pg_catalog.pg_statio_user_tables 
+        ORDER BY pg_total_relation_size(relid) DESC;
+    </code>
+    <p>Shows the size of all tables in descending order.</p>
+
+    <h2>6. Index Usage</h2>
+    <code>
+        SELECT relname AS table_name, 
+               100 * idx_scan / (seq_scan + idx_scan) AS index_usage_pct 
+        FROM pg_stat_user_tables 
+        WHERE seq_scan + idx_scan > 0 
+        ORDER BY index_usage_pct DESC;
+    </code>
+    <p>Check index usage percentage for tables.</p>
+
+    <h2>7. Vacuum Status</h2>
+    <code>
+        SELECT relname, last_vacuum, last_autovacuum, last_analyze, last_autoanalyze 
+        FROM pg_stat_user_tables 
+        WHERE last_vacuum IS NOT NULL 
+        OR last_autovacuum IS NOT NULL;
+    </code>
+    <p>Check when tables were last vacuumed or auto-vacuumed.</p>
+
+    <h2>8. Disk Space Monitoring</h2>
+    <code>
+        SELECT pg_size_pretty(pg_database_size(current_database())) AS size;
+    </code>
+    <p>Get the size of the current database to monitor disk usage.</p>
+
+    <h2>9. Check Connection Count</h2>
+    <code>
+        SELECT count(*) FROM pg_stat_activity;
+    </code>
+    <p>Find out how many active connections are there currently.</p>
+
+    <h2>10. Blocking Queries</h2>
+    <code>
+        SELECT blocked_locks.pid AS blocked_pid, 
+               blocked_activity.query AS blocked_query, 
+               blocking_locks.pid AS blocking_pid, 
+               blocking_activity.query AS blocking_query 
+        FROM pg_stat_activity AS blocked_activity 
+        JOIN pg_locks AS blocked_locks 
+          ON blocked_activity.pid = blocked_locks.pid 
+        JOIN pg_locks AS blocking_locks 
+          ON blocked_locks.locktype = blocking_locks.locktype 
+          AND blocked_locks.database IS NOT DISTINCT FROM blocking_locks.database 
+          AND blocked_locks.relation IS NOT DISTINCT FROM blocking_locks.relation 
+          AND blocked_locks.page IS NOT DISTINCT FROM blocking_locks.page 
+          AND blocked_locks.tuple IS NOT DISTINCT FROM blocking_locks.tuple 
+        JOIN pg_stat_activity AS blocking_activity 
+          ON blocking_locks.pid = blocking_activity.pid 
+        WHERE NOT blocked_locks.granted;
+    </code>
+    <p>List of queries blocked by other queries.</p>
+
+    <h2>11. Check Autovacuum Settings</h2>
+    <code>
+        SHOW autovacuum;
+    </code>
+    <p>Check if autovacuum is enabled.</p>
+
+    <h2>12. Query Execution Statistics</h2>
+    <code>
+        SELECT datname, numbackends, xact_commit, xact_rollback, blks_read, blks_hit 
+        FROM pg_stat_database;
+    </code>
+    <p>Database-level statistics on transactions and I/O operations.</p>
+
+</div>
+
+</body>
+</html>
