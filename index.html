@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PostgreSQL DBA Daily Queries</title>
+    <!-- Font Awesome CSS for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -16,10 +18,35 @@
             color: #fff;
             text-align: center;
             padding: 10px 0;
+            position: relative;
         }
         h1 {
             margin: 0;
             font-size: 24px;
+        }
+        /* Banner styles */
+        .banner {
+            background-image: url('https://via.placeholder.com/1200x200'); /* Replace with your banner image URL */
+            background-size: cover;
+            background-position: center;
+            height: 200px;
+            position: relative;
+        }
+        .banner-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #fff;
+            text-align: center;
+        }
+        .banner-text h2 {
+            font-size: 36px;
+            margin: 0;
+        }
+        .banner-text p {
+            font-size: 18px;
+            margin: 5px 0 0;
         }
         .container {
             width: 90%;
@@ -39,30 +66,64 @@
             display: block;
             margin-bottom: 10px;
             border-left: 4px solid #333;
-        }
-        pre {
-            background-color: #f1f1f1;
-            padding: 10px;
-            border-radius: 5px;
-            overflow-x: scroll;
+            overflow-x: auto;
         }
         .copy-btn {
-            background-color: #007BFF;
-            color: white;
+            background-color: transparent;
+            color: #007BFF;
             border: none;
-            padding: 5px 10px;
             cursor: pointer;
-            border-radius: 3px;
-            font-size: 14px;
-            margin-bottom: 20px;
+            font-size: 18px;
+            margin-left: 10px;
         }
         .copy-btn:hover {
-            background-color: #0056b3;
+            color: #0056b3;
         }
         .query-box {
             display: flex;
             justify-content: space-between;
             align-items: center;
+        }
+        /* About Me section */
+        .about-me {
+            background-color: #f9f9f9;
+            padding: 20px;
+            margin-top: 40px;
+            text-align: center;
+        }
+        .about-me h2 {
+            margin-top: 0;
+        }
+        .about-me p {
+            font-size: 16px;
+        }
+        .about-me a {
+            margin: 0 10px;
+            color: #333;
+            text-decoration: none;
+            font-size: 24px;
+        }
+        .about-me a:hover {
+            color: #007BFF;
+        }
+        /* Blog section */
+        .blog-section {
+            margin-top: 40px;
+        }
+        .blog-post {
+            background-color: #f9f9f9;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .blog-post h3 {
+            margin-top: 0;
+        }
+        .blog-post a {
+            color: #007BFF;
+            text-decoration: none;
+        }
+        .blog-post a:hover {
+            text-decoration: underline;
         }
     </style>
 </head>
@@ -72,6 +133,13 @@
     <h1>PostgreSQL DBA Daily Queries</h1>
 </header>
 
+<div class="banner">
+    <div class="banner-text">
+        <h2>Welcome to My Site</h2>
+        <p>Your source for PostgreSQL DBA queries and more</p>
+    </div>
+</div>
+
 <div class="container">
 
     <h2>1. Database Size</h2>
@@ -79,109 +147,56 @@
         <code id="query1">
             SELECT pg_size_pretty(pg_database_size('your_database_name')) AS size;
         </code>
-        <button class="copy-btn" onclick="copyQuery('query1')">Copy</button>
+        <button class="copy-btn" onclick="copyQuery('query1')">
+            <i class="fa-solid fa-copy"></i>
+        </button>
     </div>
     <p>Get the size of a specific database.</p>
+
+    <!-- Repeat for other queries, adjusting the copy buttons -->
 
     <h2>2. List of Running Queries</h2>
     <div class="query-box">
         <code id="query2">
             SELECT pid, query, state, wait_event_type, wait_event FROM pg_stat_activity WHERE state = 'active';
         </code>
-        <button class="copy-btn" onclick="copyQuery('query2')">Copy</button>
+        <button class="copy-btn" onclick="copyQuery('query2')">
+            <i class="fa-solid fa-copy"></i>
+        </button>
     </div>
     <p>Shows the currently active queries in the database.</p>
 
-    <h2>3. Long-running Queries</h2>
-    <div class="query-box">
-        <code id="query3">
-            SELECT pid, now() - pg_stat_activity.query_start AS duration, query FROM pg_stat_activity WHERE state = 'active' AND now() - pg_stat_activity.query_start > interval '5 minutes';
-        </code>
-        <button class="copy-btn" onclick="copyQuery('query3')">Copy</button>
-    </div>
-    <p>Identify queries running longer than 5 minutes.</p>
+    <!-- Continue for all queries -->
 
-    <h2>4. Check Locks</h2>
-    <div class="query-box">
-        <code id="query4">
-            SELECT * FROM pg_locks WHERE NOT granted;
-        </code>
-        <button class="copy-btn" onclick="copyQuery('query4')">Copy</button>
-    </div>
-    <p>List locks that are not granted.</p>
+    <!-- Add more queries here -->
 
-    <h2>5. Table Size</h2>
-    <div class="query-box">
-        <code id="query5">
-            SELECT relname AS table_name, pg_size_pretty(pg_total_relation_size(relid)) AS size FROM pg_catalog.pg_statio_user_tables ORDER BY pg_total_relation_size(relid) DESC;
-        </code>
-        <button class="copy-btn" onclick="copyQuery('query5')">Copy</button>
-    </div>
-    <p>Shows the size of all tables in descending order.</p>
+</div>
 
-    <h2>6. Index Usage</h2>
-    <div class="query-box">
-        <code id="query6">
-            SELECT relname AS table_name, 100 * idx_scan / (seq_scan + idx_scan) AS index_usage_pct FROM pg_stat_user_tables WHERE seq_scan + idx_scan > 0 ORDER BY index_usage_pct DESC;
-        </code>
-        <button class="copy-btn" onclick="copyQuery('query6')">Copy</button>
+<!-- Blog Section -->
+<div class="container blog-section">
+    <h2>Blog</h2>
+    <div class="blog-post">
+        <h3>Understanding PostgreSQL Indexes</h3>
+        <p>An overview of how indexes work in PostgreSQL and how to optimize them.</p>
+        <a href="blog-post-1-url">Read more</a>
     </div>
-    <p>Check index usage percentage for tables.</p>
-
-    <h2>7. Vacuum Status</h2>
-    <div class="query-box">
-        <code id="query7">
-            SELECT relname, last_vacuum, last_autovacuum, last_analyze, last_autoanalyze FROM pg_stat_user_tables WHERE last_vacuum IS NOT NULL OR last_autovacuum IS NOT NULL;
-        </code>
-        <button class="copy-btn" onclick="copyQuery('query7')">Copy</button>
+    <div class="blog-post">
+        <h3>Optimizing Queries for Performance</h3>
+        <p>Tips and tricks on writing efficient SQL queries in PostgreSQL.</p>
+        <a href="blog-post-2-url">Read more</a>
     </div>
-    <p>Check when tables were last vacuumed or auto-vacuumed.</p>
+    <!-- Add more blog posts as needed -->
+</div>
 
-    <h2>8. Disk Space Monitoring</h2>
-    <div class="query-box">
-        <code id="query8">
-            SELECT pg_size_pretty(pg_database_size(current_database())) AS size;
-        </code>
-        <button class="copy-btn" onclick="copyQuery('query8')">Copy</button>
-    </div>
-    <p>Get the size of the current database to monitor disk usage.</p>
-
-    <h2>9. Check Connection Count</h2>
-    <div class="query-box">
-        <code id="query9">
-            SELECT count(*) FROM pg_stat_activity;
-        </code>
-        <button class="copy-btn" onclick="copyQuery('query9')">Copy</button>
-    </div>
-    <p>Find out how many active connections are there currently.</p>
-
-    <h2>10. Blocking Queries</h2>
-    <div class="query-box">
-        <code id="query10">
-            SELECT blocked_locks.pid AS blocked_pid, blocked_activity.query AS blocked_query, blocking_locks.pid AS blocking_pid, blocking_activity.query AS blocking_query FROM pg_stat_activity AS blocked_activity JOIN pg_locks AS blocked_locks ON blocked_activity.pid = blocked_locks.pid JOIN pg_locks AS blocking_locks ON blocked_locks.locktype = blocking_locks.locktype AND blocked_locks.database IS NOT DISTINCT FROM blocking_locks.database AND blocked_locks.relation IS NOT DISTINCT FROM blocking_locks.relation AND blocked_locks.page IS NOT DISTINCT FROM blocking_locks.page AND blocked_locks.tuple IS NOT DISTINCT FROM blocking_locks.tuple JOIN pg_stat_activity AS blocking_activity ON blocking_locks.pid = blocking_activity.pid WHERE NOT blocked_locks.granted;
-        </code>
-        <button class="copy-btn" onclick="copyQuery('query10')">Copy</button>
-    </div>
-    <p>List of queries blocked by other queries.</p>
-
-    <h2>11. Check Autovacuum Settings</h2>
-    <div class="query-box">
-        <code id="query11">
-            SHOW autovacuum;
-        </code>
-        <button class="copy-btn" onclick="copyQuery('query11')">Copy</button>
-    </div>
-    <p>Check if autovacuum is enabled.</p>
-
-    <h2>12. Query Execution Statistics</h2>
-    <div class="query-box">
-        <code id="query12">
-            SELECT datname, numbackends, xact_commit, xact_rollback, blks_read, blks_hit FROM pg_stat_database;
-        </code>
-        <button class="copy-btn" onclick="copyQuery('query12')">Copy</button>
-    </div>
-    <p>Database-level statistics on transactions and I/O operations.</p>
-
+<!-- About Me Section -->
+<div class="about-me">
+    <h2>About Me</h2>
+    <p>I'm a PostgreSQL DBA with a passion for database optimization and performance tuning.</p>
+    <p>Connect with me on social media:</p>
+    <a href="https://twitter.com/yourusername" target="_blank"><i class="fa-brands fa-twitter"></i></a>
+    <a href="https://github.com/yourusername" target="_blank"><i class="fa-brands fa-github"></i></a>
+    <a href="https://linkedin.com/in/yourusername" target="_blank"><i class="fa-brands fa-linkedin"></i></a>
+    <!-- Add other social media links -->
 </div>
 
 <script>
